@@ -1,6 +1,8 @@
 import sys
+import json
+import requests
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QCheckBox, QHBoxLayout, QProgressBar, QSizePolicy, QDialog, QDialogButtonBox, QLabel, QMessageBox, QCalendarWidget, QFormLayout, QHeaderView
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt, QDate, QObject, Signal, Slot, QThread
 from model import TaskModel
 
 class AddTaskDialog(QDialog):
@@ -96,6 +98,36 @@ class EditTaskDialog(QDialog):
         description = self.task_description_input.text()
         return task_name, task_status, due_date, description
 
+class AsyncTest(QObject):
+    finished = Signal(str)
+
+    def run(self):
+        try:
+            # Download the file
+            url = "https://raw.githubusercontent.com/json-iterator/test-data/master/large-file.json"
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an exception for bad status codes
+
+            # Parse the JSON
+            data = json.loads(response.text)
+
+            # Get the first element as a string
+            first_element = json.dumps(data[0], indent=2)
+
+            # Emit the finished signal with the result
+            self.finished.emit(first_element)
+        except Exception as e:
+            # If there's an error, emit the error message
+            self.finished.emit(f"Error: {str(e)}")
+
+class AsyncTestThread(QThread):
+    def __init__(self, async_test):
+        super().__init__()
+        self.async_test = async_test
+
+    def run(self):
+        self.async_test.run()
+
 class ToDoApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -136,7 +168,17 @@ class ToDoApp(QMainWindow):
         self.delete_all_button.clicked.connect(self.confirm_delete_all_tasks)
         self.layout.addWidget(self.delete_all_button)
 
+        # Add the Async test button
+        self.async_test_button = QPushButton("Async test")
+        self.async_test_button.clicked.connect(self.on_async_test_clicked)
+        self.layout.addWidget(self.async_test_button)
+
         self.load_tasks()
+
+        # Create an instance of AsyncTest
+        self.async_test = AsyncTest()
+        self.async_test.finished.connect(self.on_async_test_finished)
+        self.async_test_thread = AsyncTestThread(self.async_test)
 
     def load_tasks(self):
         self.task_table.setRowCount(0)
@@ -225,6 +267,13 @@ class ToDoApp(QMainWindow):
             progress = int((completed_tasks / total_tasks) * 100)
             self.progress_bar.setValue(progress)
             self.progress_bar.setFormat(f"{progress}%")
+
+    def on_async_test_clicked(self):
+        self.async_test_thread.start()
+
+    @Slot(str)
+    def on_async_test_finished(self, result):
+        QMessageBox.information(self, "Async Test", f"Async test done\n\nFirst element:\n{result}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
